@@ -41,6 +41,7 @@ from src.modules.research.api import (
     evaluations,
     feedback,
     insights,
+    jev,
     recommendations,
 )
 from src.modules.strategy.api import factors
@@ -79,6 +80,9 @@ app.include_router(
 )
 app.include_router(
     insights.router, prefix="/api/insights", tags=["insights"], dependencies=protected
+)
+app.include_router(
+    jev.router, prefix="/api/jev", tags=["jev"], dependencies=protected
 )
 app.include_router(
     accounts.router, prefix="/api", tags=["accounts"], dependencies=protected

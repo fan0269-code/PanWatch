@@ -124,6 +124,10 @@ def map_state_to_result(
         content=content,
         notify_content=notify_content,
         raw_data={
+            "stock": {
+                "symbol": stock.symbol,
+                "market": getattr(stock.market, "value", str(stock.market)),
+            },
             "suggestion": suggestion,
             "cost_usd": cost_usd,
             "should_alert": suggestion["should_alert"],

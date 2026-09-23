@@ -400,29 +400,35 @@ class KlineCollector:
     def __init__(self, market: MarketCode):
         self.market = market
 
-    def get_klines(self, symbol: str, days: int = 60) -> list[KlineData]:
+    def get_klines(
+        self, symbol: str, days: int = 60, *, force_refresh: bool = False,
+    ) -> list[KlineData]:
         """获取日K线数据。
 
         正缓存(按市场状态 TTL)+ 同标的并发合并(只联网一次)+ 失败负缓存
         (源短暂故障时冷却窗口内不再联网),避免多消费者并发把数据源打爆。
+        force_refresh 在同标的锁内跳过正/负缓存；取数失败不会回退旧数据，
+        供必须在收盘后重新采集末根日线的手动判断使用。
         """
         cache_key = f"{self.market.value}:{symbol}"
         need = max(1, int(days or 1))
 
         # 1) 快路径:命中新鲜正缓存,无需加锁
-        hit = self._cache_hit(cache_key, need)
-        if hit is not None:
-            return hit
-
-        # 2) 同标的并发合并:仅一个线程实际联网,其余等待后复用结果
-        with _get_fetch_lock(cache_key):
+        if not force_refresh:
             hit = self._cache_hit(cache_key, need)
             if hit is not None:
                 return hit
 
+        # 2) 同标的并发合并:仅一个线程实际联网,其余等待后复用结果
+        with _get_fetch_lock(cache_key):
+            if not force_refresh:
+                hit = self._cache_hit(cache_key, need)
+                if hit is not None:
+                    return hit
+
             now = time.time()
             # 3) 负缓存:刚失败过的标的,冷却窗口内返回陈旧/空,不再联网
-            if now < _FAIL_UNTIL.get(cache_key, 0.0):
+            if not force_refresh and now < _FAIL_UNTIL.get(cache_key, 0.0):
                 stale = _KLINE_CACHE.get(cache_key)
                 bars = stale[2] if stale else []
                 return bars[-need:] if len(bars) > need else bars

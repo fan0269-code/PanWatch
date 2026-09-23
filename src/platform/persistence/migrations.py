@@ -1965,6 +1965,30 @@ def _m126_assistant_task_events(conn: Connection) -> None:
     )
 
 
+def _m127_jev_judgments(conn: Connection) -> None:
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS jev_judgments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            market TEXT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            as_of TEXT NOT NULL,
+            reference_price FLOAT NOT NULL,
+            horizon INTEGER NOT NULL,
+            flat_threshold_pct FLOAT NOT NULL,
+            model TEXT NOT NULL,
+            input_snapshot JSON NOT NULL DEFAULT '{}',
+            result JSON NOT NULL DEFAULT '{}'
+        )
+    """))
+    _create_index_if_missing(
+        conn,
+        "ix_jev_judgments_stock_created",
+        "CREATE INDEX ix_jev_judgments_stock_created "
+        "ON jev_judgments(symbol, market, created_at)",
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(101, "agent_config_kind_and_visibility", _m101_agent_config_kind),
     Migration(102, "backfill_agent_kind_data", _m102_backfill_agent_kind),
@@ -1992,6 +2016,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(124, "assistant_context_snapshots", _m124_assistant_context_snapshots),
     Migration(125, "assistant_task_protocol", _m125_assistant_task_protocol),
     Migration(126, "assistant_task_events", _m126_assistant_task_events),
+    Migration(127, "jev_judgments", _m127_jev_judgments),
 )
 
 
