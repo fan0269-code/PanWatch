@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from src.platform.persistence.database import get_db
 from src.platform.persistence.models import NotifyChannel
 from src.platform.notifications.notifier import NotifierManager, CHANNEL_TYPES
+from src.platform.notifications.feishu import validate_config as validate_feishu_config
 
 router = APIRouter()
 
@@ -50,9 +51,15 @@ def list_channel_types():
 
 @router.post("", response_model=ChannelResponse)
 def create_channel(body: ChannelCreate, db: Session = Depends(get_db)):
+    data = body.model_dump()
+    if body.type == "feishu":
+        try:
+            data["config"] = validate_feishu_config(body.config)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
     if body.is_default:
         db.query(NotifyChannel).update({"is_default": False})
-    channel = NotifyChannel(**body.model_dump())
+    channel = NotifyChannel(**data)
     db.add(channel)
     db.commit()
     db.refresh(channel)
@@ -66,6 +73,11 @@ def update_channel(channel_id: int, body: ChannelUpdate, db: Session = Depends(g
         raise HTTPException(404, "通知渠道不存在")
 
     data = body.model_dump(exclude_unset=True)
+    if data.get("type", channel.type) == "feishu" and ("config" in data or "type" in data):
+        try:
+            data["config"] = validate_feishu_config(data.get("config", channel.config))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
     if data.get("is_default"):
         db.query(NotifyChannel).update({"is_default": False})
 

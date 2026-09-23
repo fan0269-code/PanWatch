@@ -69,7 +69,7 @@ interface ChannelFieldDef {
   required?: boolean
 }
 
-const CHANNEL_TYPE_FIELDS: Record<string, { label: string; fields: ChannelFieldDef[] }> = {
+const CHANNEL_TYPE_FIELDS: Record<string, { label: string; description?: string; fields: ChannelFieldDef[] }> = {
   telegram: {
     label: 'Telegram',
     fields: [
@@ -100,8 +100,17 @@ const CHANNEL_TYPE_FIELDS: Record<string, { label: string; fields: ChannelFieldD
       { key: 'webhook_key', label: 'Webhook Key', placeholder: 'Webhook URL 中 key= 后的值', secret: true, required: true },
     ],
   },
-  lark: {
+  feishu: {
     label: '飞书机器人',
+    description: '适用于国内飞书。请粘贴自定义机器人的完整 Webhook 地址；若机器人启用了签名校验，还需填写签名密钥。',
+    fields: [
+      { key: 'webhook_url', label: 'Webhook 地址', placeholder: 'https://open.feishu.cn/open-apis/bot/v2/hook/...', secret: true, required: true },
+      { key: 'secret', label: '签名密钥', placeholder: '机器人安全设置中的签名密钥（选填）', secret: true },
+    ],
+  },
+  lark: {
+    label: '国际 Lark 机器人',
+    description: '适用于国际 Lark（open.larksuite.com）。国内飞书请选择「飞书机器人」。',
     fields: [
       { key: 'webhook_token', label: 'Webhook Token', placeholder: 'hook/ 后面的 token', secret: true, required: true },
     ],
@@ -138,6 +147,10 @@ const CHANNEL_TYPE_FIELDS: Record<string, { label: string; fields: ChannelFieldD
 const emptyServiceForm: ServiceForm = { name: '', base_url: '', api_key: '' }
 const emptyModelForm: ModelForm = { name: '', service_id: null, model: '' }
 const emptyChannelForm: ChannelForm = { name: '', type: 'telegram', config: {} }
+
+function isFeishuWebhookUrl(value: string): boolean {
+  return /^https:\/\/open\.feishu\.cn\/open-apis\/bot\/v2\/hook\/[A-Za-z0-9_-]{1,128}$/.test(value.trim())
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Setting[]>([])
@@ -562,10 +575,14 @@ export default function SettingsPage() {
   }
 
   const saveChannel = async () => {
+    if (!isChannelFormValid()) return
     const payload = {
-      name: channelForm.name,
+      name: channelForm.name.trim(),
       type: channelForm.type,
-      config: channelForm.config,
+      config: channelForm.type === 'feishu' ? {
+        webhook_url: channelForm.config.webhook_url.trim(),
+        secret: (channelForm.config.secret || '').trim(),
+      } : channelForm.config,
     }
     try {
       if (editChannelId) {
@@ -581,9 +598,13 @@ export default function SettingsPage() {
   }
 
   const isChannelFormValid = () => {
-    if (!channelForm.name) return false
+    if (!channelForm.name.trim()) return false
     const typeDef = CHANNEL_TYPE_FIELDS[channelForm.type]
     if (!typeDef) return false
+    if (channelForm.type === 'feishu' && (
+      !isFeishuWebhookUrl(channelForm.config.webhook_url || '') ||
+      (channelForm.config.secret || '').trim().length > 256
+    )) return false
     return typeDef.fields
       .filter(f => f.required)
       .every(f => !!channelForm.config[f.key]?.trim())
@@ -833,9 +854,9 @@ export default function SettingsPage() {
           <div className="flex items-start justify-between mb-4 md:mb-5 gap-3">
             <div>
               <h3 className="text-[12px] md:text-[13px] font-semibold text-foreground">通知渠道</h3>
-              <p className="text-[11px] text-muted-foreground mt-1">推送到 Telegram/Bark 等渠道</p>
+              <p className="text-[11px] text-muted-foreground mt-1">推送到飞书、Telegram、Bark 等渠道</p>
             </div>
-            <Button size="sm" className="h-8" onClick={() => openChannelDialog()}>
+            <Button size="sm" className="h-8" onClick={() => openChannelDialog()} aria-label="添加通知渠道">
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">添加</span>
             </Button>
@@ -872,7 +893,7 @@ export default function SettingsPage() {
                       </Button>
                     )}
                     <Switch checked={ch.enabled} onCheckedChange={() => toggleChannelEnabled(ch)} />
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openChannelDialog(ch)}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openChannelDialog(ch)} aria-label={`编辑${ch.name}`}>
                       <Pencil className="w-3.5 h-3.5" />
                     </Button>
                     <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-destructive" onClick={() => deleteChannel(ch.id)}>
@@ -1291,20 +1312,21 @@ export default function SettingsPage() {
           </DialogHeader>
           <div className="space-y-4 mt-2">
             <div>
-              <Label>名称</Label>
+              <Label htmlFor="channel-name">名称</Label>
               <Input
+                id="channel-name"
                 value={channelForm.name}
                 onChange={e => setChannelForm({ ...channelForm, name: e.target.value })}
                 placeholder="如 我的 Telegram"
               />
             </div>
             <div>
-              <Label>类型</Label>
+              <Label htmlFor="channel-type">类型</Label>
               <Select
                 value={channelForm.type}
                 onValueChange={val => setChannelForm({ ...channelForm, type: val, config: {} })}
               >
-                <SelectTrigger>
+                <SelectTrigger id="channel-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1314,11 +1336,17 @@ export default function SettingsPage() {
                 </SelectContent>
               </Select>
             </div>
+            {CHANNEL_TYPE_FIELDS[channelForm.type]?.description && (
+              <p className="text-[12px] text-muted-foreground leading-relaxed">
+                {CHANNEL_TYPE_FIELDS[channelForm.type].description}
+              </p>
+            )}
             {CHANNEL_TYPE_FIELDS[channelForm.type]?.fields.map(field => (
               <div key={field.key}>
-                <Label>{field.label}{!field.required && <span className="text-muted-foreground font-normal"> (选填)</span>}</Label>
+                <Label htmlFor={`channel-field-${field.key}`}>{field.label}{!field.required && <span className="text-muted-foreground font-normal"> (选填)</span>}</Label>
                 <div className="relative">
                   <Input
+                    id={`channel-field-${field.key}`}
                     type={field.secret && !channelKeyVisible ? 'password' : 'text'}
                     value={channelForm.config[field.key] || ''}
                     onChange={e => setChannelForm({
@@ -1333,6 +1361,7 @@ export default function SettingsPage() {
                       type="button" variant="ghost" size="icon"
                       className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
                       onClick={() => setChannelKeyVisible(!channelKeyVisible)}
+                      aria-label={`${channelKeyVisible ? '隐藏' : '显示'}${field.label}`}
                     >
                       {channelKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </Button>
@@ -1340,6 +1369,12 @@ export default function SettingsPage() {
                 </div>
               </div>
             ))}
+            {channelForm.type === 'feishu' && channelForm.config.webhook_url?.trim() && !isFeishuWebhookUrl(channelForm.config.webhook_url) && (
+              <p role="alert" className="text-[12px] text-destructive">请填写完整的国内飞书 Webhook 地址：https://open.feishu.cn/open-apis/bot/v2/hook/机器人令牌，不包含其他参数。</p>
+            )}
+            {channelForm.type === 'feishu' && (channelForm.config.secret || '').trim().length > 256 && (
+              <p role="alert" className="text-[12px] text-destructive">签名密钥不能超过 256 个字符。</p>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="ghost" onClick={() => setChannelDialogOpen(false)}>取消</Button>
               <Button onClick={saveChannel} disabled={!isChannelFormValid()}>
