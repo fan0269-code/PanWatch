@@ -90,7 +90,7 @@
 
 Telegram / 企业微信 / 钉钉 / 飞书 / Bark / 自定义 Webhook
 
-国内飞书使用完整 Webhook 地址，可选配置签名密钥；国际 Lark 保留独立渠道类型。详见 [飞书配置说明](docs/feishu.md)。
+国内飞书支持 App ID / App Secret 的应用机器人，也支持完整 Webhook 地址和可选签名密钥的群自定义机器人；国际 Lark 保留独立渠道类型。详见 [飞书配置说明](docs/feishu.md)。
 
 </details>
 

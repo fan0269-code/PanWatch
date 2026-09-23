@@ -1,8 +1,22 @@
 # 飞书群机器人通知
 
-国内飞书使用通知渠道类型 `feishu`。原来的 `lark` 类型保留给国际版 Lark，已有配置不自动迁移。
+国内飞书支持两种通知渠道：`feishu_app` 用于有 App ID / App Secret 的自建应用机器人，`feishu` 用于群自定义机器人的 Webhook。原来的 `lark` 类型保留给国际版 Lark，已有配置不自动迁移。
 
-## 配置
+## 应用机器人（App ID / App Secret）
+
+1. 在飞书开放平台为自建应用开启机器人能力，申请 `im:message:send_as_bot` 权限，并按平台要求发布版本。
+2. 把应用机器人添加到接收通知的群中，取得该群的 `chat_id`（以 `oc_` 开头）。
+3. 在 PanWatch 的「设置 → 通知渠道」新增「飞书应用机器人」，填写 App ID 和 App Secret。
+4. 接收类型选择 `chat_id`，填写接收群 ID。保存、启用并设为默认渠道，再点击「测试」。
+5. 测试成功后，原有报告和提醒即可按各任务的通知设置发送到该群。
+
+也支持向用户的 `open_id` 或 `user_id` 发送通知。用户必须在应用可用范围内；使用 `user_id` 还需要 `contact:user.employee_id:readonly` 权限。应用机器人自身的 `open_id` 不是你的个人接收 ID。
+
+App Secret 只用于服务端换取租户访问令牌。令牌保存在内存中并提前过期；仅在明确的令牌失效错误下刷新并重试一次，两次发送使用同一 UUID 以防重复。权限或网络错误会明确报告，不会自动重复发送。App Secret、访问令牌不应写入 Git 或公开截图。
+
+官方说明：[获取自建应用访问令牌](https://open.feishu.cn/document/server-docs/authentication-management/access-token/tenant_access_token_internal)、[发送消息与所需权限](https://open.feishu.cn/document/server-docs/im-v1/message/create)。
+
+## 群自定义机器人（Webhook）
 
 1. 在飞书群中添加自定义机器人，复制其完整 Webhook 地址。
 2. 在 PanWatch 的「设置 → 通知渠道」新增「飞书」，填写名称及完整 Webhook 地址：
