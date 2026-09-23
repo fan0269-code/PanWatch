@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings
 
 from src.platform.marketdata.models import MarketCode
@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     ai_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     ai_api_key: str = ""
     ai_model: str = "glm-4"
+
+    # Jev 使用独立的 System One 接口，密钥仅在服务端读取。
+    typesafe_api_key: SecretStr = SecretStr("")
+    jev_model: str = "jev-latest"
+    jev_timeout_seconds: float = Field(default=30.0, ge=1, le=120)
 
     # Assistant context engineering. The compression model is optional: when
     # unset, the host reuses the configured default assistant model.

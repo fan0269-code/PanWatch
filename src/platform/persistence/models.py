@@ -304,6 +304,27 @@ class AnalysisHistory(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class JevJudgment(Base):
+    """Jev 每次手动判断的固定证据与结果；不按日期覆盖。"""
+
+    __tablename__ = "jev_judgments"
+    __table_args__ = (
+        Index("ix_jev_judgments_stock_created", "symbol", "market", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String, nullable=False)
+    market = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    as_of = Column(String, nullable=False)
+    reference_price = Column(Float, nullable=False)
+    horizon = Column(Integer, nullable=False)
+    flat_threshold_pct = Column(Float, nullable=False)
+    model = Column(String, nullable=False)
+    input_snapshot = Column(JSON, nullable=False, default=dict)
+    result = Column(JSON, nullable=False, default=dict)
+
+
 class StockContextSnapshot(Base):
     """按股票/日期保存结构化上下文快照（用于跨天记忆）"""
 

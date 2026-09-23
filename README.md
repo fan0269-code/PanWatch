@@ -49,6 +49,10 @@
 
 ## 核心功能
 
+### Jev 个股判断（本分支新增）
+
+个股详情新增「Jev 判断」：手动评估当前趋势和风险、预测未来 1／3／5 个交易日方向，并复核已有 AI 报告的证据支持程度。结果保存为独立历史记录，展示数据时间、分类概率与模型置信度。配置服务端 `TYPESAFE_API_KEY` 后使用，详见 [Jev 配置与数据说明](docs/jev.md)。
+
 <details>
 <summary><b>智能 Agent 系统</b></summary>
 
@@ -85,6 +89,8 @@
 <summary><b>全渠道通知</b></summary>
 
 Telegram / 企业微信 / 钉钉 / 飞书 / Bark / 自定义 Webhook
+
+国内飞书支持 App ID / App Secret 的应用机器人，也支持完整 Webhook 地址和可选签名密钥的群自定义机器人；国际 Lark 保留独立渠道类型。详见 [飞书配置说明](docs/feishu.md)。
 
 </details>
 

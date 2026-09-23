@@ -22,6 +22,7 @@ import { buildKlineSuggestion } from '@/lib/kline-scorer'
 import StockPriceAlertPanel from '@panwatch/biz-ui/components/stock-price-alert-panel'
 import { TechnicalBadge } from '@panwatch/biz-ui/components/technical-badge'
 import AddPositionCalculator from '@panwatch/biz-ui/components/add-position-calculator'
+import JevJudgmentPanel from '@panwatch/biz-ui/components/jev-judgment-panel'
 
 interface QuoteResponse {
   symbol: string
@@ -110,7 +111,7 @@ interface PortfolioSummaryResponse {
   }>
 }
 
-type InsightTab = 'overview' | 'kline' | 'suggestions' | 'news' | 'announcements' | 'reports' | 'deep'
+type InsightTab = 'overview' | 'kline' | 'suggestions' | 'news' | 'announcements' | 'reports' | 'deep' | 'jev'
 
 interface StockAgentInfo {
   agent_name: string
@@ -1383,6 +1384,7 @@ export default function StockInsightModal(props: {
                 { id: 'suggestions', label: `建议 (${suggestions.length})` },
                 { id: 'reports', label: `报告 (${reports.length})` },
                 { id: 'deep', label: deepResult ? '深度 (1)' : '深度' },
+                { id: 'jev', label: 'Jev 判断' },
                 { id: 'kline', label: 'K线' },
                 { id: 'announcements', label: `公告 (${announcements.length})` },
                 { id: 'news', label: `新闻 (${news.length})` },
@@ -1773,6 +1775,8 @@ export default function StockInsightModal(props: {
                 />
               </div>
             )}
+
+            {tab === 'jev' && <JevJudgmentPanel symbol={symbol} market={market} />}
 
             {tab === 'suggestions' && (
               <div className="space-y-3">

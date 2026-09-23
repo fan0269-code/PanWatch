@@ -6,6 +6,11 @@ import apprise
 import asyncio
 import httpx
 
+from src.platform.notifications.feishu import send_text as send_feishu_text
+from src.platform.notifications.feishu import validate_config as validate_feishu_config
+from src.platform.notifications.feishu_app import send_text as send_feishu_app_text
+from src.platform.notifications.feishu_app import validate_config as validate_feishu_app_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,6 +70,21 @@ def sanitize_for_telegram(content: str) -> str:
     return content.strip()
 
 
+def sanitize_for_feishu(content: str) -> str:
+    """复用纯文本清理，但保护 URL 中的下划线、星号等合法字符。"""
+    content = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", r"\1 \2", content)
+    urls: list[str] = []
+
+    def protect_url(match):
+        urls.append(match.group(0))
+        return f"\ue000{len(urls) - 1}\ue001"
+
+    safe = sanitize_for_telegram(re.sub(r"https?://[^\s<>]+", protect_url, content))
+    for index, url in enumerate(urls):
+        safe = safe.replace(f"\ue000{index}\ue001", url)
+    return safe
+
+
 # 渠道类型定义 (label + 表单字段)
 CHANNEL_TYPES = {
     "telegram": {
@@ -89,8 +109,16 @@ CHANNEL_TYPES = {
         "fields": ["webhook_key"],
     },
     "lark": {
-        "label": "飞书机器人",
+        "label": "Lark 机器人（国际版）",
         "fields": ["webhook_token"],
+    },
+    "feishu": {
+        "label": "飞书机器人（国内版）",
+        "fields": ["webhook_url", "secret"],
+    },
+    "feishu_app": {
+        "label": "飞书应用机器人（国内版）",
+        "fields": ["app_id", "app_secret", "receive_id_type", "receive_id"],
     },
     "serverchan": {
         "label": "Server酱",
@@ -114,13 +142,13 @@ CHANNEL_TYPES = {
 _APPRISE_TYPES = {"telegram", "bark", "dingtalk", "lark", "discord", "pushover"}
 
 # 自定义实现的渠道类型（带代理或特殊需求）
-_CUSTOM_IMPL_TYPES = {"wecom", "serverchan", "pushplus"}
+_CUSTOM_IMPL_TYPES = {"wecom", "serverchan", "pushplus", "feishu", "feishu_app"}
 
 # 支持 Markdown 的渠道（不需要 sanitize）
 _MARKDOWN_CHANNELS = {"wecom", "serverchan", "pushplus", "dingtalk", "lark", "discord"}
 
 # 不支持 Markdown 的渠道（需要 sanitize）
-_PLAIN_TEXT_CHANNELS = {"telegram", "bark", "pushover"}
+_PLAIN_TEXT_CHANNELS = {"telegram", "bark", "pushover", "feishu", "feishu_app"}
 
 
 def build_apprise_url(channel_type: str, config: dict) -> str | None:
@@ -210,6 +238,11 @@ class NotifierManager:
 
     def add_channel(self, channel_type: str, config: dict):
         """添加通知渠道"""
+        if channel_type == "feishu":
+            # 不吞掉国内飞书配置错误，测试接口和调用方必须明确获知失败。
+            config = validate_feishu_config(config)
+        elif channel_type == "feishu_app":
+            config = validate_feishu_app_config(config)
         try:
             if channel_type in _APPRISE_TYPES:
                 url = build_apprise_url(channel_type, config)
@@ -327,11 +360,13 @@ class NotifierManager:
         for ch_type, config in self._custom_channels:
             ch_ok = False
             last_err = ""
-            for attempt in range(0, retry_attempts + 1):
+            # 应用机器人内部只对明确令牌失效重试一次，并复用 uuid 去重。
+            channel_retries = 0 if ch_type == "feishu_app" else retry_attempts
+            for attempt in range(0, channel_retries + 1):
                 try:
                     # 支持 Markdown 的渠道使用原始内容，否则使用纯文本
                     ch_content = (
-                        content if ch_type in _MARKDOWN_CHANNELS else plain_content
+                        content if ch_type in _MARKDOWN_CHANNELS or ch_type in {"feishu", "feishu_app"} else plain_content
                     )
                     await self._send_custom(ch_type, config, title, ch_content)
                     ch_ok = True
@@ -339,7 +374,7 @@ class NotifierManager:
                 except Exception as e:
                     last_err = f"{ch_type} 发送失败: {e}"
                     logger.error(last_err)
-                if attempt < retry_attempts:
+                if attempt < channel_retries:
                     await _sleep_retry(attempt + 1)
             if not ch_ok:
                 errors.append(last_err or f"{ch_type} 发送失败")
@@ -358,6 +393,10 @@ class NotifierManager:
             await self._send_serverchan(config, title, content)
         elif ch_type == "pushplus":
             await self._send_pushplus(config, title, content)
+        elif ch_type == "feishu":
+            await send_feishu_text(config, sanitize_for_feishu(title), sanitize_for_feishu(content))
+        elif ch_type == "feishu_app":
+            await send_feishu_app_text(config, sanitize_for_feishu(title), sanitize_for_feishu(content))
         else:
             logger.warning(f"未知的自定义渠道类型: {ch_type}")
 

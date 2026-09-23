@@ -67,9 +67,11 @@ interface ChannelFieldDef {
   placeholder: string
   secret?: boolean
   required?: boolean
+  options?: Array<{ value: string; label: string }>
+  defaultValue?: string
 }
 
-const CHANNEL_TYPE_FIELDS: Record<string, { label: string; fields: ChannelFieldDef[] }> = {
+const CHANNEL_TYPE_FIELDS: Record<string, { label: string; description?: string; fields: ChannelFieldDef[] }> = {
   telegram: {
     label: 'Telegram',
     fields: [
@@ -100,8 +102,34 @@ const CHANNEL_TYPE_FIELDS: Record<string, { label: string; fields: ChannelFieldD
       { key: 'webhook_key', label: 'Webhook Key', placeholder: 'Webhook URL 中 key= 后的值', secret: true, required: true },
     ],
   },
-  lark: {
+  feishu: {
     label: '飞书机器人',
+    description: '适用于国内飞书。请粘贴自定义机器人的完整 Webhook 地址；若机器人启用了签名校验，还需填写签名密钥。',
+    fields: [
+      { key: 'webhook_url', label: 'Webhook 地址', placeholder: 'https://open.feishu.cn/open-apis/bot/v2/hook/...', secret: true, required: true },
+      { key: 'secret', label: '签名密钥', placeholder: '机器人安全设置中的签名密钥（选填）', secret: true },
+    ],
+  },
+  feishu_app: {
+    label: '飞书应用机器人',
+    description: '使用飞书自建应用发送消息。发送群消息前，请先把应用机器人加入目标群，群 ID 以 oc_ 开头；应用需要开通发送消息权限并发布生效。',
+    fields: [
+      { key: 'app_id', label: 'App ID', placeholder: 'cli_...', required: true },
+      { key: 'app_secret', label: 'App Secret', placeholder: '应用凭证中的 App Secret', secret: true, required: true },
+      {
+        key: 'receive_id_type', label: '接收对象类型', placeholder: '', required: true, defaultValue: 'chat_id',
+        options: [
+          { value: 'chat_id', label: '群（chat_id）' },
+          { value: 'open_id', label: '用户（open_id）' },
+          { value: 'user_id', label: '用户（user_id）' },
+        ],
+      },
+      { key: 'receive_id', label: '接收对象 ID', placeholder: '与接收对象类型对应的群或用户 ID', required: true },
+    ],
+  },
+  lark: {
+    label: '国际 Lark 机器人',
+    description: '适用于国际 Lark（open.larksuite.com）。国内飞书请选择「飞书机器人」。',
     fields: [
       { key: 'webhook_token', label: 'Webhook Token', placeholder: 'hook/ 后面的 token', secret: true, required: true },
     ],
@@ -138,6 +166,36 @@ const CHANNEL_TYPE_FIELDS: Record<string, { label: string; fields: ChannelFieldD
 const emptyServiceForm: ServiceForm = { name: '', base_url: '', api_key: '' }
 const emptyModelForm: ModelForm = { name: '', service_id: null, model: '' }
 const emptyChannelForm: ChannelForm = { name: '', type: 'telegram', config: {} }
+
+function isFeishuWebhookUrl(value: string): boolean {
+  return /^https:\/\/open\.feishu\.cn\/open-apis\/bot\/v2\/hook\/[A-Za-z0-9_-]{1,128}$/.test(value.trim())
+}
+
+function channelConfigDefaults(type: string): Record<string, string> {
+  return Object.fromEntries((CHANNEL_TYPE_FIELDS[type]?.fields || [])
+    .filter(field => field.defaultValue !== undefined)
+    .map(field => [field.key, field.defaultValue!]))
+}
+
+function feishuAppValidationError(config: Record<string, string>): string | null {
+  const appId = (config.app_id || '').trim()
+  const appSecret = (config.app_secret || '').trim()
+  const recipientType = (config.receive_id_type || 'chat_id').trim()
+  const recipient = (config.receive_id || '').trim()
+  if (appId && !/^cli_[A-Za-z0-9_-]{1,124}$/.test(appId)) {
+    return 'App ID 需以 cli_ 开头，且只含英文字母、数字、下划线或短横线，总长度不超过 128 个字符。'
+  }
+  if (appSecret && !/^[!-~]{1,256}$/.test(appSecret)) {
+    return 'App Secret 需为 1–256 个 ASCII 可打印字符，不能包含空白或控制字符。'
+  }
+  if (!['chat_id', 'open_id', 'user_id'].includes(recipientType)) return '请选择有效的接收对象类型。'
+  if (recipient && !/^[A-Za-z0-9_-]{1,128}$/.test(recipient)) {
+    return '接收对象 ID 只支持英文字母、数字、下划线或短横线，长度不超过 128 个字符。'
+  }
+  if (recipient && recipientType === 'chat_id' && !/^oc_[A-Za-z0-9_-]+$/.test(recipient)) return '群 ID（chat_id）需以 oc_ 开头，且包含完整 ID。'
+  if (recipient && recipientType === 'open_id' && !/^ou_[A-Za-z0-9_-]+$/.test(recipient)) return '用户 Open ID 需以 ou_ 开头，且包含完整 ID。'
+  return null
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Setting[]>([])
@@ -550,7 +608,7 @@ export default function SettingsPage() {
       setChannelForm({
         name: channel.name,
         type: channel.type,
-        config: channel.config ? { ...channel.config } : {},
+        config: { ...channelConfigDefaults(channel.type), ...channel.config },
       })
       setEditChannelId(channel.id)
     } else {
@@ -562,10 +620,19 @@ export default function SettingsPage() {
   }
 
   const saveChannel = async () => {
+    if (!isChannelFormValid()) return
     const payload = {
-      name: channelForm.name,
+      name: channelForm.name.trim(),
       type: channelForm.type,
-      config: channelForm.config,
+      config: channelForm.type === 'feishu' ? {
+        webhook_url: channelForm.config.webhook_url.trim(),
+        secret: (channelForm.config.secret || '').trim(),
+      } : channelForm.type === 'feishu_app' ? {
+        app_id: channelForm.config.app_id.trim(),
+        app_secret: channelForm.config.app_secret.trim(),
+        receive_id_type: channelForm.config.receive_id_type.trim(),
+        receive_id: channelForm.config.receive_id.trim(),
+      } : channelForm.config,
     }
     try {
       if (editChannelId) {
@@ -581,12 +648,19 @@ export default function SettingsPage() {
   }
 
   const isChannelFormValid = () => {
-    if (!channelForm.name) return false
+    if (!channelForm.name.trim()) return false
     const typeDef = CHANNEL_TYPE_FIELDS[channelForm.type]
     if (!typeDef) return false
+    if (channelForm.type === 'feishu' && (
+      !isFeishuWebhookUrl(channelForm.config.webhook_url || '') ||
+      (channelForm.config.secret || '').trim().length > 256
+    )) return false
+    if (channelForm.type === 'feishu_app' && feishuAppValidationError(channelForm.config)) return false
     return typeDef.fields
       .filter(f => f.required)
-      .every(f => !!channelForm.config[f.key]?.trim())
+      .every(f => !!channelForm.config[f.key]?.trim() && (
+        !f.options || f.options.some(option => option.value === channelForm.config[f.key])
+      ))
   }
 
   const deleteChannel = async (id: number) => {
@@ -641,6 +715,7 @@ export default function SettingsPage() {
   const defaultModel = allModels.find(m => m.is_default)
   const defaultChannel = channels.find(c => c.is_default)
   const enabledChannels = channels.filter(c => c.enabled)
+  const feishuAppError = channelForm.type === 'feishu_app' ? feishuAppValidationError(channelForm.config) : null
 
   const filteredSettings = settings.filter(s => {
     const q = systemQuery.trim().toLowerCase()
@@ -833,9 +908,9 @@ export default function SettingsPage() {
           <div className="flex items-start justify-between mb-4 md:mb-5 gap-3">
             <div>
               <h3 className="text-[12px] md:text-[13px] font-semibold text-foreground">通知渠道</h3>
-              <p className="text-[11px] text-muted-foreground mt-1">推送到 Telegram/Bark 等渠道</p>
+              <p className="text-[11px] text-muted-foreground mt-1">推送到飞书、Telegram、Bark 等渠道</p>
             </div>
-            <Button size="sm" className="h-8" onClick={() => openChannelDialog()}>
+            <Button size="sm" className="h-8" onClick={() => openChannelDialog()} aria-label="添加通知渠道">
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">添加</span>
             </Button>
@@ -872,7 +947,7 @@ export default function SettingsPage() {
                       </Button>
                     )}
                     <Switch checked={ch.enabled} onCheckedChange={() => toggleChannelEnabled(ch)} />
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openChannelDialog(ch)}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openChannelDialog(ch)} aria-label={`编辑${ch.name}`}>
                       <Pencil className="w-3.5 h-3.5" />
                     </Button>
                     <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-destructive" onClick={() => deleteChannel(ch.id)}>
@@ -1291,20 +1366,24 @@ export default function SettingsPage() {
           </DialogHeader>
           <div className="space-y-4 mt-2">
             <div>
-              <Label>名称</Label>
+              <Label htmlFor="channel-name">名称</Label>
               <Input
+                id="channel-name"
                 value={channelForm.name}
                 onChange={e => setChannelForm({ ...channelForm, name: e.target.value })}
                 placeholder="如 我的 Telegram"
               />
             </div>
             <div>
-              <Label>类型</Label>
+              <Label htmlFor="channel-type">类型</Label>
               <Select
                 value={channelForm.type}
-                onValueChange={val => setChannelForm({ ...channelForm, type: val, config: {} })}
+                onValueChange={val => {
+                  setChannelForm({ ...channelForm, type: val, config: channelConfigDefaults(val) })
+                  setChannelKeyVisible(false)
+                }}
               >
-                <SelectTrigger>
+                <SelectTrigger id="channel-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1314,18 +1393,43 @@ export default function SettingsPage() {
                 </SelectContent>
               </Select>
             </div>
+            {CHANNEL_TYPE_FIELDS[channelForm.type]?.description && (
+              <p className="text-[12px] text-muted-foreground leading-relaxed">
+                {CHANNEL_TYPE_FIELDS[channelForm.type].description}
+              </p>
+            )}
             {CHANNEL_TYPE_FIELDS[channelForm.type]?.fields.map(field => (
               <div key={field.key}>
-                <Label>{field.label}{!field.required && <span className="text-muted-foreground font-normal"> (选填)</span>}</Label>
-                <div className="relative">
+                <Label htmlFor={`channel-field-${field.key}`}>{field.label}{!field.required && <span className="text-muted-foreground font-normal"> (选填)</span>}</Label>
+                {field.options ? (
+                  <Select
+                    value={channelForm.config[field.key] || field.defaultValue}
+                    onValueChange={value => setChannelForm({
+                      ...channelForm,
+                      config: { ...channelForm.config, [field.key]: value },
+                    })}
+                  >
+                    <SelectTrigger id={`channel-field-${field.key}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {field.options.map(option => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : <div className="relative">
                   <Input
+                    id={`channel-field-${field.key}`}
                     type={field.secret && !channelKeyVisible ? 'password' : 'text'}
                     value={channelForm.config[field.key] || ''}
                     onChange={e => setChannelForm({
                       ...channelForm,
                       config: { ...channelForm.config, [field.key]: e.target.value },
                     })}
-                    placeholder={field.placeholder}
+                    placeholder={channelForm.type === 'feishu_app' && field.key === 'receive_id'
+                      ? (channelForm.config.receive_id_type === 'chat_id' ? 'oc_...（群 ID）' : channelForm.config.receive_id_type === 'open_id' ? 'ou_...（用户 Open ID）' : '用户 User ID')
+                      : field.placeholder}
                     className={`font-mono ${field.secret ? 'pr-10' : ''}`}
                   />
                   {field.secret && (
@@ -1333,13 +1437,21 @@ export default function SettingsPage() {
                       type="button" variant="ghost" size="icon"
                       className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
                       onClick={() => setChannelKeyVisible(!channelKeyVisible)}
+                      aria-label={`${channelKeyVisible ? '隐藏' : '显示'}${field.label}`}
                     >
                       {channelKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </Button>
                   )}
-                </div>
+                </div>}
               </div>
             ))}
+            {channelForm.type === 'feishu' && channelForm.config.webhook_url?.trim() && !isFeishuWebhookUrl(channelForm.config.webhook_url) && (
+              <p role="alert" className="text-[12px] text-destructive">请填写完整的国内飞书 Webhook 地址：https://open.feishu.cn/open-apis/bot/v2/hook/机器人令牌，不包含其他参数。</p>
+            )}
+            {channelForm.type === 'feishu' && (channelForm.config.secret || '').trim().length > 256 && (
+              <p role="alert" className="text-[12px] text-destructive">签名密钥不能超过 256 个字符。</p>
+            )}
+            {feishuAppError && <p role="alert" className="text-[12px] text-destructive">{feishuAppError}</p>}
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="ghost" onClick={() => setChannelDialogOpen(false)}>取消</Button>
               <Button onClick={saveChannel} disabled={!isChannelFormValid()}>
